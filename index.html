@@ -1,438 +1,358 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>寶可夢卡牌圖鑑與辨識</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-
-
-    <style>
-        :root {
-            --primary-color: #ff5252;
-            --bg-color: #f0f2f5;
-        }
-
-
-        body {
-            font-family: 'Helvetica Neue', Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: var(--bg-color);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            min-height: 100vh;
-        }
-
-
-        /* 頁面切換控制 */
-        .page {
-            display: none;
-            width: 100%;
-            max-width: 600px;
-            padding: 20px;
-            box-sizing: border-box;
-            text-align: center;
-        }
-
-
-        .active {
-            display: block;
-        }
-
-
-        /* 首頁按鈕 */
-        .home-btn-container {
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            height: 80vh;
-            gap: 20px;
-        }
-
-
-        button {
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            border: none;
-            border-radius: 50px;
-            background-color: var(--primary-color);
-            color: white;
-            cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            transition: transform 0.2s;
-        }
-
-
-        button:active {
-            transform: scale(0.95);
-        }
-
-
-        h1 { color: #333; }
-
-
-        /* 圖鑑頁面 */
-        .gallery-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr); /* 手機版一行3張 */
-            gap: 15px;
-            padding-bottom: 50px;
-        }
-
-
-        .card-item {
-            background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            cursor: pointer;
-        }
-
-
-        .card-item img {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-
-
-        /* 浮動視窗 (Modal) */
-        #modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5); /* 背景遮罩 */
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-
-
-        .modal-content {
-            background-color: rgba(255, 255, 255, 0.95); /* 半透明白色 */
-            padding: 30px;
-            border-radius: 15px;
-            width: 80%;
-            max-width: 400px;
-            position: relative;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
-            text-align: left;
-        }
-
-
-        .close-btn {
-            position: absolute;
-            top: 10px;
-            right: 15px;
-            font-size: 24px;
-            cursor: pointer;
-            color: #666;
-            font-weight: bold;
-        }
-
-
-        .modal-img {
-            width: 100%;
-            max-width: 200px;
-            display: block;
-            margin: 0 auto 15px auto;
-        }
-
-
-        .info-text {
-            line-height: 1.6;
-            font-size: 1rem;
-            color: #333;
-        }
-
-
-        /* 掃描頁面 */
-        #webcam-container {
-            width: 100%;
-            border-radius: 15px;
-            overflow: hidden;
-            margin-bottom: 20px;
-            background: black;
-            display: flex;
-            justify-content: center;
-        }
-       
-        canvas {
-            width: 100% !important;
-            height: auto !important;
-        }
-
-
-        /* 辨識結果頁面 */
-        .result-img-container img {
-            width: 80%;
-            max-width: 300px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-            margin-bottom: 20px;
-        }
-
-
-        .confidence-score {
-            color: #666;
-            font-size: 0.9rem;
-            margin-bottom: 10px;
-        }
-
-
-        .back-btn {
-            background-color: #666;
-            margin-top: 20px;
-        }
-    </style>
-</head>
-<body>
-
-
-    <div id="home-page" class="page active">
-        <h1>寶可夢卡牌助手</h1>
-        <div class="home-btn-container">
-            <button onclick="goToGallery()">圖鑑</button>
-            <button onclick="goToScanner()">掃描</button>
-        </div>
-    </div>
-
-
-    <div id="gallery-page" class="page">
-        <h2>卡牌圖鑑</h2>
-        <div class="gallery-grid" id="gallery-grid">
-            </div>
-        <button class="back-btn" onclick="goHome()">返回首頁</button>
-    </div>
-
-
-    <div id="scan-page" class="page">
-        <h2>卡牌掃描</h2>
-        <div id="webcam-container"></div>
-        <div id="loading-text">模型載入中...</div>
-        <button id="scan-btn" onclick="performScan()" disabled>開始辨識</button>
-        <br><br>
-        <button class="back-btn" onclick="stopWebcamAndGoHome()">返回首頁</button>
-    </div>
-
-
-    <div id="result-page" class="page">
-        <h2>辨識結果</h2>
-        <div class="result-img-container">
-            <img id="result-img" src="" alt="Recognized Card">
-        </div>
-        <div class="confidence-score" id="result-confidence"></div>
-        <div class="modal-content" style="margin: 0 auto; background: rgba(255,255,255,0.8);">
-            <div id="result-desc" class="info-text"></div>
-        </div>
-        <br>
-        <button onclick="goToScanner()">重新辨識</button>
-        <button class="back-btn" onclick="goHome()">返回首頁</button>
-    </div>
-
-
-    <div id="modal">
-        <div class="modal-content">
-            <span class="close-btn" onclick="closeModal()">&times;</span>
-            <img id="modal-img-display" class="modal-img" src="">
-            <div id="modal-desc" class="info-text"></div>
-        </div>
-    </div>
-
-
-    <script>
-        // --- 資料設定 ---
-        // 請在此處填入您的 Teachable Machine 模型網址 (必須以 / 結尾)
-        const URL = "https://teachablemachine.withgoogle.com/models/uy0KMIbUd/";
-
-
-        const cardData = [
-            { id: 1, desc: "屬性:草 編號: 0406 卡包: M2aF 進化標記:基礎" },
-            { id: 2, desc: "屬性:寶可夢道具 卡包:M2aF" },
-            { id: 3, desc: "屬性:支援者 卡包:M2aF" },
-            { id: 4, desc: "屬性:龍 編號:0887 卡包:M2aF 進化標記:太晶EX" },
-            { id: 5, desc: "屬性:龍 編號:0886 卡包:M2aF 進化標記:1階進化" },
-            { id: 6, desc: "屬性:龍 編號:0885 卡包:M2aF 進化標記:基礎" },
-            { id: 7, desc: "屬性:龍 編號:0148 卡包:M2aF 進化標記:1階進化" },
-            { id: 8, desc: "屬性:龍 編號:0149 卡包:M2aF 進化標記:超級進化EX" },
-            { id: 9, desc: "屬性:龍 編號:0147 卡包:M2aF 進化標記:基礎" },
-            { id: 10, desc: "屬性:電 編號:0603 卡包:M2aF 進化標記:1階進化" },
-            { id: 11, desc: "屬性:電 編號:0602 卡包:M2aF 進化標記:基礎" },
-            { id: 12, desc: "屬性:電 編號:0604 卡包:M2aF 進化標記:超級進化EX" }
-        ];
-
-
-        // --- 頁面導航邏輯 ---
-        function showPage(pageId) {
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.getElementById(pageId).classList.add('active');
-        }
-
-
-        function goHome() {
-            stopWebcam(); // 確保相機關閉
-            showPage('home-page');
-        }
-
-
-        // --- 圖鑑邏輯 ---
-        function goToGallery() {
-            const grid = document.getElementById('gallery-grid');
-            grid.innerHTML = ''; // 清空以防重複
-           
-            cardData.forEach(card => {
-                const div = document.createElement('div');
-                div.className = 'card-item';
-                div.innerHTML = `<img src="${card.id}.png" alt="Card ${card.id}">`;
-                div.onclick = () => openModal(card);
-                grid.appendChild(div);
-            });
-           
-            showPage('gallery-page');
-        }
-
-
-        // --- 浮動視窗 (Modal) 邏輯 ---
-        function openModal(card) {
-            document.getElementById('modal-img-display').src = `${card.id}.png`;
-            document.getElementById('modal-desc').innerText = card.desc;
-            document.getElementById('modal').style.display = 'flex';
-        }
-
-
-        function closeModal() {
-            document.getElementById('modal').style.display = 'none';
-        }
-
-
-        // --- Teachable Machine 掃描邏輯 ---
-        let model, webcam, labelContainer, maxPredictions;
-        let isModelLoaded = false;
-
-
-        async function initModel() {
-            if (isModelLoaded) return;
-           
-            const modelURL = URL + "model.json";
-            const metadataURL = URL + "metadata.json";
-
-
-            try {
-                model = await tmImage.load(modelURL, metadataURL);
-                maxPredictions = model.getTotalClasses();
-                isModelLoaded = true;
-                document.getElementById('loading-text').style.display = 'none';
-                document.getElementById('scan-btn').disabled = false;
-                document.getElementById('scan-btn').innerText = "拍照並辨識";
-            } catch (e) {
-                alert("模型載入失敗，請檢查網址是否正確。");
-                console.error(e);
+    <!DOCTYPE html>
+    <html lang="zh-TW">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>寶可夢卡牌圖鑑與辨識</title>
+        <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+        <style>
+            :root {
+                --primary-color: #ff5252;
+                --bg-color: #f0f2f5;
             }
-        }
-
-
+            body {
+                font-family: 'Helvetica Neue', Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: var(--bg-color);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                min-height: 100vh;
+            }
+            /* 頁面切換控制 */
+            .page {
+                display: none;
+                width: 100%;
+                max-width: 600px;
+                padding: 20px;
+                box-sizing: border-box;
+                text-align: center;
+            }
+            .active {
+                display: block;
+            }
+            /* 首頁按鈕 */
+            .home-btn-container {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                height: 80vh;
+                gap: 20px;
+            }
+            button {
+                padding: 15px 30px;
+                font-size: 1.2rem;
+                border: none;
+                border-radius: 50px;
+                background-color: var(--primary-color);
+                color: white;
+                cursor: pointer;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                transition: transform 0.2s;
+            }
+            button:active {
+                transform: scale(0.95);
+            }
+            h1 { color: #333; }
+            /* 圖鑑頁面 */
+            .gallery-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr); /* 手機版一行3張 */
+                gap: 15px;
+                padding-bottom: 50px;
+            }
+            .card-item {
+                background: white;
+                border-radius: 10px;
+                overflow: hidden;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+                cursor: pointer;
+            }
+            .card-item img {
+                width: 100%;
+                height: auto;
+                display: block;
+            }
+            /* 浮動視窗 (Modal) */
+            #modal {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5); /* 背景遮罩 */
+                z-index: 1000;
+                justify-content: center;
+                align-items: center;
+            }
+            .modal-content {
+                background-color: rgba(255, 255, 255, 0.95); /* 半透明白色 */
+                padding: 30px;
+                border-radius: 15px;
+                width: 80%;
+                max-width: 400px;
+                position: relative;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+                text-align: left;
+            }
+            .close-btn {
+                position: absolute;
+                top: 10px;
+                right: 15px;
+                font-size: 24px;
+                cursor: pointer;
+                color: #666;
+                font-weight: bold;
+            }
+            .modal-img {
+                width: 100%;
+                max-width: 200px;
+                display: block;
+                margin: 0 auto 15px auto;
+            }
+            .info-text {
+                line-height: 1.6;
+                font-size: 1rem;
+                color: #333;
+            }
+            /* 掃描頁面 */
+            #webcam-container {
+                width: 100%;
+                border-radius: 15px;
+                overflow: hidden;
+                margin-bottom: 20px;
+                background: black;
+                display: flex;
+                justify-content: center;
+            }
+            canvas {
+                width: 100% !important;
+                height: auto !important;
+            }
+            /* 辨識結果頁面 */
+            .result-img-container img {
+                width: 80%;
+                max-width: 300px;
+                border-radius: 10px;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                margin-bottom: 20px;
+            }
+            .confidence-score {
+                color: #666;
+                font-size: 0.9rem;
+                margin-bottom: 10px;
+            }
+            .back-btn {
+                background-color: #666;
+                margin-top: 20px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="home-page" class="page active">
+            <h1>寶可夢卡牌助手</h1>
+            <div class="home-btn-container">
+                <button onclick="goToGallery()">圖鑑</button>
+                <button onclick="goToScanner()">掃描</button>
+            </div>
+        </div>
+        <div id="gallery-page" class="page">
+            <h2>卡牌圖鑑</h2>
+            <div class="gallery-grid" id="gallery-grid">
+                </div>
+            <button class="back-btn" onclick="goHome()">返回首頁</button>
+        </div>
+        <div id="scan-page" class="page">
+            <h2>卡牌掃描</h2>
+            <div id="webcam-container"></div>
+            <div id="loading-text">模型載入中...</div>
+            <button id="scan-btn" onclick="performScan()" disabled>開始辨識</button>
+            <br><br>
+            <button class="back-btn" onclick="stopWebcamAndGoHome()">返回首頁</button>
+        </div>
+        <div id="result-page" class="page">
+            <h2>辨識結果</h2>
+            <div class="result-img-container">
+                <img id="result-img" src="" alt="Recognized Card">
+            </div>
+            <div class="confidence-score" id="result-confidence"></div>
+            <div class="modal-content" style="margin: 0 auto; background: rgba(255,255,255,0.8);">
+                <div id="result-desc" class="info-text"></div>
+            </div>
+            <br>
+            <button onclick="goToScanner()">重新辨識</button>
+            <button class="back-btn" onclick="goHome()">返回首頁</button>
+        </div>
+        <div id="modal">
+            <div class="modal-content">
+                <span class="close-btn" onclick="closeModal()">&times;</span>
+                <img id="modal-img-display" class="modal-img" src="">
+                <div id="modal-desc" class="info-text"></div>
+            </div>
+        </div>
+        <script>
+            // --- 資料設定 ---
+            // 請在此處填入您的 Teachable Machine 模型網址 (必須以 / 結尾)
+            const URL = "https://teachablemachine.withgoogle.com/models/uy0KMIbUd/";
+            const cardData = [
+                { id: 1, desc: "屬性:草 編號: 0406 卡包: M2aF 進化標記:基礎" },
+                { id: 2, desc: "屬性:寶可夢道具 卡包:M2aF" },
+                { id: 3, desc: "屬性:支援者 卡包:M2aF" },
+                { id: 4, desc: "屬性:龍 編號:0887 卡包:M2aF 進化標記:太晶EX" },
+                { id: 5, desc: "屬性:龍 編號:0886 卡包:M2aF 進化標記:1階進化" },
+                { id: 6, desc: "屬性:龍 編號:0885 卡包:M2aF 進化標記:基礎" },
+                { id: 7, desc: "屬性:龍 編號:0148 卡包:M2aF 進化標記:1階進化" },
+                { id: 8, desc: "屬性:龍 編號:0149 卡包:M2aF 進化標記:超級進化EX" },
+                { id: 9, desc: "屬性:龍 編號:0147 卡包:M2aF 進化標記:基礎" },
+                { id: 10, desc: "屬性:電 編號:0603 卡包:M2aF 進化標記:1階進化" },
+                { id: 11, desc: "屬性:電 編號:0602 卡包:M2aF 進化標記:基礎" },
+                { id: 12, desc: "屬性:電 編號:0604 卡包:M2aF 進化標記:超級進化EX" }
+            ];
+            // --- 頁面導航邏輯 ---
+            function showPage(pageId) {
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.getElementById(pageId).classList.add('active');
+            }
+            function goHome() {
+                stopWebcam(); // 確保相機關閉
+                showPage('home-page');
+            }
+            // --- 圖鑑邏輯 ---
+            function goToGallery() {
+                const grid = document.getElementById('gallery-grid');
+                grid.innerHTML = ''; // 清空以防重複
+                cardData.forEach(card => {
+                    const div = document.createElement('div');
+                    div.className = 'card-item';
+                    div.innerHTML = `<img src="${card.id}.png" alt="Card ${card.id}">`;
+                    div.onclick = () => openModal(card);
+                    grid.appendChild(div);
+                });
+                showPage('gallery-page');
+            }
+            // --- 浮動視窗 (Modal) 邏輯 ---
+            function openModal(card) {
+                document.getElementById('modal-img-display').src = `${card.id}.png`;
+                document.getElementById('modal-desc').innerText = card.desc;
+                document.getElementById('modal').style.display = 'flex';
+            }
+            function closeModal() {
+                document.getElementById('modal').style.display = 'none';
+            }
+            // --- Teachable Machine 掃描邏輯 ---
+            let model, webcam, labelContainer, maxPredictions;
+            let isModelLoaded = false;
+        async function initModel() {
+                // --- 修改開始 ---
+                // 如果模型已經載入，我們仍然需要把 UI 狀態改回來（隱藏載入字樣、開啟按鈕）
+                if (isModelLoaded) {
+                    document.getElementById('loading-text').style.display = 'none';
+                    document.getElementById('scan-btn').disabled = false;
+                    document.getElementById('scan-btn').innerText = "拍照並辨識";
+                    return;
+                }
+                // --- 修改結束 ---
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+                try {
+                    model = await tmImage.load(modelURL, metadataURL);
+                    maxPredictions = model.getTotalClasses();
+                    isModelLoaded = true;
+               
+                    // 這裡是第一次載入成功時會執行的
+                    document.getElementById('loading-text').style.display = 'none';
+                    document.getElementById('scan-btn').disabled = false;
+                    document.getElementById('scan-btn').innerText = "拍照並辨識";
+                } catch (e) {
+                    alert("模型載入失敗，請檢查網址是否正確。");
+                    console.error(e);
+                }
+            }
         async function goToScanner() {
             showPage('scan-page');
             document.getElementById('scan-btn').disabled = true;
             document.getElementById('loading-text').style.display = 'block';
-           
-            await initModel();
-
-
-            // 設定 Webcam
-            const flip = true;
+            document.getElementById('loading-text').innerText = "啟動相機與模型中...";
+            await initModel(); // 確保模型載入
+            // --- 修改重點 1: 關閉鏡像 ---
+            // 後鏡頭不需要鏡像，所以改為 false (原本是 true)
+            const flip = false;            
             webcam = new tmImage.Webcam(300, 300, flip);
-            await webcam.setup();
+            // --- 修改重點 2: 指定使用後鏡頭 ---
+            // 在 setup 中加入 { facingMode: "environment" }
+            // 這會強制手機瀏覽器嘗試切換到後面的鏡頭
+            await webcam.setup({ facingMode: "environment" });            
             await webcam.play();
             window.requestAnimationFrame(loopWebcam);
-
-
             // 將 Webcam 加到 DOM
             const container = document.getElementById("webcam-container");
             container.innerHTML = '';
             container.appendChild(webcam.canvas);
+            // --- 全部準備好後，才隱藏 Loading 並啟用按鈕 ---
+            document.getElementById('loading-text').style.display = 'none';
+            document.getElementById('scan-btn').disabled = false;
+            document.getElementById('scan-btn').innerText = "拍照並辨識";
         }
-
-
-        async function loopWebcam() {
-            if (webcam && webcam.canvas) {
-                webcam.update();
-                window.requestAnimationFrame(loopWebcam);
-            }
-        }
-
-
-        async function performScan() {
-            if (!model || !webcam) return;
-
-
-            // 進行預測
-            const prediction = await model.predict(webcam.canvas);
-           
-            // 找出最高分的結果
-            let highestProb = 0;
-            let bestClass = "";
-           
-            prediction.forEach(p => {
-                if (p.probability > highestProb) {
-                    highestProb = p.probability;
-                    bestClass = p.className;
+            async function loopWebcam() {
+                if (webcam && webcam.canvas) {
+                    webcam.update();
+                    window.requestAnimationFrame(loopWebcam);
                 }
-            });
-
-
-            stopWebcam(); // 拍照後停止相機
-            showResult(bestClass, highestProb);
-        }
-
-
-        function stopWebcam() {
-            if (webcam) {
-                webcam.stop();
-                webcam = null;
             }
-        }
-       
-        function stopWebcamAndGoHome() {
-            stopWebcam();
-            goHome();
-        }
-
-
-        // --- 顯示結果 ---
-        function showResult(className, probability) {
-            // 假設模型訓練的 Class Name 是 "1", "2" ... "12" 或者英文名
-            // 這裡嘗試將 Class Name 轉為數字 ID 進行對應
-            // 如果你的 Class Name 是 "Bulbasaur" 等名字，需要寫一個對照表
+            async function performScan() {
+                if (!model || !webcam) return;
+                // 進行預測
+                const prediction = await model.predict(webcam.canvas);
+                // 找出最高分的結果
+                let highestProb = 0;
+                let bestClass = "";
+                prediction.forEach(p => {
+                    if (p.probability > highestProb) {
+                        highestProb = p.probability;
+                        bestClass = p.className;
+                    }
+                });
+                stopWebcam(); // 拍照後停止相機
+                showResult(bestClass, highestProb);
+            }
+            function stopWebcam() {
+                if (webcam) {
+                    webcam.stop();
+                    webcam = null;
+                }
+            }      
+            function stopWebcamAndGoHome() {
+                stopWebcam();
+                goHome();
+            }
+            // --- 顯示結果 ---
+            function showResult(className, probability) {
+                // 假設模型訓練的 Class Name 是 "1", "2" ... "12" 或者英文名
+                // 這裡嘗試將 Class Name 轉為數字 ID 進行對應
+                // 如果你的 Class Name 是 "Bulbasaur" 等名字，需要寫一個對照表
            
-            // 嘗試解析數字 (假設 Class Name 包含數字，如 "Class 1" 或 "1")
-            let matchId = parseInt(className.replace(/\D/g, ''));
-           
-            // 如果解析失敗或找不到對應 ID，預設為 1 (或顯示未偵測)
-            if (!matchId || matchId < 1 || matchId > 12) matchId = 1;
+                // 嘗試解析數字 (假設 Class Name 包含數字，如 "Class 1" 或 "1")
+                let matchId = parseInt(className.replace(/\D/g, ''));
+                // 如果解析失敗或找不到對應 ID，預設為 1 (或顯示未偵測)
+                if (!matchId || matchId < 1 || matchId > 12) matchId = 1;
+                const card = cardData.find(c => c.id === matchId);
+                const displayId = card ? card.id : 1;
+                const displayDesc = card ? card.desc : "無法辨識或無資料";
+                document.getElementById('result-img').src = `${displayId}.png`;
+                document.getElementById('result-confidence').innerText = `信心程度: ${(probability * 100).toFixed(1)}% (辨識結果: ${className})`;
+                document.getElementById('result-desc').innerText = displayDesc;
+                showPage('result-page');
+            }
+        </script>
+    </body>
+    </html>
 
 
-            const card = cardData.find(c => c.id === matchId);
-            const displayId = card ? card.id : 1;
-            const displayDesc = card ? card.desc : "無法辨識或無資料";
 
 
-            document.getElementById('result-img').src = `${displayId}.png`;
-            document.getElementById('result-confidence').innerText = `信心程度: ${(probability * 100).toFixed(1)}% (辨識結果: ${className})`;
-            document.getElementById('result-desc').innerText = displayDesc;
-
-
-            showPage('result-page');
-        }
-    </script>
-</body>
-</html>
 
 
 
